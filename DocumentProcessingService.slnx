@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="DocumentProcessingService.Api/DocumentProcessingService.Api.csproj" />
+  <Project Path="DocumentProcessingService.Worker/DocumentProcessingService.Worker.csproj" />
+</Solution>
