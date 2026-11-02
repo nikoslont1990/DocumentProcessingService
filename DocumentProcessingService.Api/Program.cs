@@ -1,3 +1,11 @@
+using Azure.Storage.Blobs;
+using DocumentProcessingService.Application.Interfaces;
+using DocumentProcessingService.Application.Services;
+using DocumentProcessingService.Infrastructure;
+using DocumentProcessingService.Infrastructure.Pesistence;
+using DocumentProcessingService.Infrastructure.Services;
+using Microsoft.EntityFrameworkCore;
+using System.Text;
 
 namespace DocumentProcessingService.Api
 {
@@ -9,13 +17,49 @@ namespace DocumentProcessingService.Api
 
             // Add services to the container.
 
+            builder.Services.AddDbContext<DocumentDbContext>(options =>
+                options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
+            builder.Services.AddInfrastrucutre(builder.Configuration);
+            builder.Services.AddScoped<IDocumentService>(x =>
+                new DocumentService(
+                    x.GetRequiredService<IDocumentRepository>(),
+                    x.GetRequiredService<IBlobStorageService>()
+                ));
+
             builder.Services.AddControllers();
-            // Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
             builder.Services.AddOpenApi();
 
             var app = builder.Build();
 
-            // Configure the HTTP request pipeline.
+            app.MapGet("/test-blob", async (BlobServiceClient serviceClient) =>
+            {
+                try
+                {
+                    var containerClient =
+                        serviceClient.GetBlobContainerClient("documents");
+
+                    await containerClient.CreateIfNotExistsAsync();
+
+                    var blobClient =
+                        containerClient.GetBlobClient("test.txt");
+
+                    using var stream = new MemoryStream(
+                        Encoding.UTF8.GetBytes("Hello from Azurite!"));
+
+                    await blobClient.UploadAsync(stream, overwrite: true);
+
+                    return Results.Ok("Upload successful!");
+                }
+                catch (Exception ex)
+                {
+                    return Results.Problem(
+                        title: "Azurite upload failed",
+                        detail: ex.Message);
+                }
+            });
+
+            // Configure
+            // the HTTP request pipeline.
             if (app.Environment.IsDevelopment())
             {
                 app.MapOpenApi();

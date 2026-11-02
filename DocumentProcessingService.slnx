@@ -3,5 +3,9 @@
     <File Path="README.md" />
   </Folder>
   <Project Path="DocumentProcessingService.Api/DocumentProcessingService.Api.csproj" />
+  <Project Path="DocumentProcessingService.Application/DocumentProcessingService.Application.csproj" Id="0546d294-5940-491e-969a-7bb5e026c93c" />
+  <Project Path="DocumentProcessingService.Domain/DocumentProcessingService.Domain.csproj" Id="f3ce501b-498d-4c4f-8e51-eaa44e10d4d4" />
+  <Project Path="DocumentProcessingService.Infrastructure/DocumentProcessingService.Infrastructure.csproj" Id="f6531c68-adac-4374-a8ef-7838594ce7a9" />
   <Project Path="DocumentProcessingService.Worker/DocumentProcessingService.Worker.csproj" />
+  <Project Path="TestProject1/DocumentProcessingService.Tests.csproj" Id="e326061d-1a69-4c00-8219-67e2946924c3" />
 </Solution>
