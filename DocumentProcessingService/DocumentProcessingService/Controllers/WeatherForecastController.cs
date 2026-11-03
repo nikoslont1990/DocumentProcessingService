@@ -6,6 +6,7 @@ namespace DocumentProcessingService.Controllers
     [Route("[controller]")]
     public class WeatherForecastController : ControllerBase
     {
+        //hahaha
         private static readonly string[] Summaries =
         [
             "Freezing", "Bracing", "Chilly", "Cool", "Mild", "Warm", "Balmy", "Hot", "Sweltering", "Scorching"
@@ -21,6 +22,7 @@ namespace DocumentProcessingService.Controllers
                 Summary = Summaries[Random.Shared.Next(Summaries.Length)]
             })
             .ToArray();
+            //lala
         }
     }
 }
