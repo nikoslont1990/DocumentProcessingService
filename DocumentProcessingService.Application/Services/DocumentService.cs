@@ -1,14 +1,15 @@
 ﻿using DocumentProcessingService.Application.DTOs;
 using DocumentProcessingService.Application.Interfaces;
 using DocumentProcessingService.Domain.Entities;
+using Microsoft.Extensions.Logging;
 
 namespace DocumentProcessingService.Application.Services
 {
     public class DocumentService : IDocumentService
     {
         private readonly IDocumentRepository _documentRepository;
-        private readonly IBlobStorageService _blobStorageService;
-        private static Dictionary<Guid, string> documents = new Dictionary<Guid, string>();
+        private readonly IBlobStorageService _documentStorage;
+        private readonly ILogger<DocumentService> _logger;
         private static readonly Dictionary<string, string> AllowedFileTypes =
             new(StringComparer.OrdinalIgnoreCase)
             {
@@ -18,10 +19,12 @@ namespace DocumentProcessingService.Application.Services
                         { ".jpeg", "image/jpeg" }
             };
 
-        public DocumentService(IDocumentRepository documentRepository, IBlobStorageService blobStorageService)
+        public DocumentService(IDocumentRepository documentRepository, IBlobStorageService documentStorage,
+            ILogger<DocumentService> logger)
         {
             _documentRepository = documentRepository;
-            _blobStorageService = blobStorageService;
+            _documentStorage = documentStorage;
+            _logger = logger;
         }
 
         public async Task<Document> CreateDocument(string fileName, long fileSize, string contentType, Stream fileStream, CancellationToken cancellationToken)
@@ -34,7 +37,6 @@ namespace DocumentProcessingService.Application.Services
             if (!AllowedFileTypes.TryGetValue(fileExtension, out _))
                 throw new ArgumentException($"File type '{fileExtension}' is not supported.", nameof(fileName));
 
-            // 2. Create document entity
             var document = new Document()
             {
                 Id = Guid.NewGuid(),
@@ -44,26 +46,26 @@ namespace DocumentProcessingService.Application.Services
                 CreatedAt = DateTime.UtcNow,
             };
 
+            string? blobName = null;
+
             try
             {
-                // 3. Save metadata to database
+                // Step 1: Save metadata before uploading the file.
+                _logger.LogInformation("Save document metadata started");
                 var docId = await _documentRepository.AddDocumentAsync(document, cancellationToken);
                 if (docId == Guid.Empty)
                     return null;
 
 
-                // 4. ✅ INJECT AND UPLOAD TO BLOB STORAGE
-                fileStream.Position = 0; // Reset stream
-                string blobName = await _blobStorageService.UploadDocumentAsync(
+                // Step 2: Upload the file.
+                _logger.LogInformation("Document upload started");
+                blobName = await _documentStorage.UploadDocumentAsync(
                     document.Id,
                     fileName,
                     fileStream,
                     cancellationToken);
 
-                if (blobName == null)
-                    throw new InvalidOperationException("Failed to upload document to blob storage.");
-
-                // 5. Update status
+                // Step 3: Update metadata after successful upload.
                 document.BlobName = blobName;
                 document.Status = "Completed";
 
@@ -71,13 +73,35 @@ namespace DocumentProcessingService.Application.Services
 
                 return document;
             }
-            catch (ArgumentException)
-            {
-                throw;
-            }
             catch (Exception ex)
             {
-                throw new InvalidOperationException($"Failed to create document: {ex.Message}", ex);
+                _logger.LogError(ex,"Upload failed for document {DocumentId}",document.Id);
+                // Compensation: remove the blob if it was uploaded.
+                if (blobName is not null)
+                {
+                    try
+                    {
+                        await _documentStorage.DeleteAsync(
+                            blobName,
+                            CancellationToken.None);
+                    }
+                    catch (Exception cleanupException)
+                    {
+                        _logger.LogError(cleanupException, "Failed to delete blob {BlobName}", blobName);
+                    }
+                }
+                // Try to mark the document as failed.
+                document.Status = "Failed";
+
+                try
+                {
+                    await _documentRepository.UpdateAsync(document, CancellationToken.None);
+                }
+                catch (Exception statusException)
+                {   
+                    _logger.LogError(statusException, "Failed to mark document {DocumentId} as Failed", document.Id);
+                }
+                throw;
             }
         }
 
@@ -116,7 +140,7 @@ namespace DocumentProcessingService.Application.Services
                 return null;
             }
 
-            var stream = await _blobStorageService.DownloadAsync(
+            var stream = await _documentStorage.DownloadAsync(
                 document.BlobName,
                 cancellationToken);
 

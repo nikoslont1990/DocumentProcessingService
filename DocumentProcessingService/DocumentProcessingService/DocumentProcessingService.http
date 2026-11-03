@@ -1,0 +1,6 @@
+@DocumentProcessingService_HostAddress = http://localhost:5030
+
+GET {{DocumentProcessingService_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###

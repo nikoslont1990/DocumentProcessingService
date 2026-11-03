@@ -43,5 +43,13 @@ namespace DocumentProcessingService.Infrastructure.Services.Storage
             return await blobClient.OpenReadAsync(
                 cancellationToken: cancellationToken);
         }
+
+        public async Task DeleteAsync(string blobName, CancellationToken cancellationToken)
+        {
+            var blobClient = _containerClient.GetBlobClient(blobName);
+
+            await blobClient.DeleteIfExistsAsync(
+                cancellationToken: cancellationToken);
+        }
     }
 }

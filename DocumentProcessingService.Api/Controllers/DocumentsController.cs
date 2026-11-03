@@ -98,9 +98,7 @@ namespace DocumentProcessingService.Api.Controllers
 
 
         [HttpGet("{id:guid}/download")]
-        public async Task<IActionResult> Download(
-         Guid id,
-         CancellationToken cancellationToken)
+        public async Task<IActionResult> Download(Guid id, CancellationToken cancellationToken)
         {
             var result = await _documentService.DownloadAsync(
                 id,

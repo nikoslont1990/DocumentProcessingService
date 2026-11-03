@@ -15,15 +15,18 @@ namespace DocumentProcessingService.Api
         {
             var builder = WebApplication.CreateBuilder(args);
 
-            // Add services to the container.
+            builder.Logging.ClearProviders();
+            builder.Logging.AddConsole();
+            builder.Logging.AddDebug();
 
-            builder.Services.AddDbContext<DocumentDbContext>(options =>
-                options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
+            // Add services to the container
             builder.Services.AddInfrastrucutre(builder.Configuration);
             builder.Services.AddScoped<IDocumentService>(x =>
                 new DocumentService(
+                    
                     x.GetRequiredService<IDocumentRepository>(),
-                    x.GetRequiredService<IBlobStorageService>()
+                    x.GetRequiredService<IBlobStorageService>(),
+                    x.GetRequiredService<ILogger<DocumentService>>()
                 ));
 
             builder.Services.AddControllers();
