@@ -1,6 +1,8 @@
 ﻿using DocumentProcessingService.Application.DTOs;
 using DocumentProcessingService.Application.Interfaces;
+using DocumentProcessingService.Domain.Entities;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.OpenApi;
 
 namespace DocumentProcessingService.Api.Controllers
 {
@@ -8,7 +10,6 @@ namespace DocumentProcessingService.Api.Controllers
     [Route("api/[controller]")]
     public class DocumentsController : ControllerBase
     {
-        //new lala
         private readonly IDocumentService _documentService;
         private readonly ILogger<DocumentsController> _logger;
         private const int MaxFileSize = 1 * 1024 * 1024;
@@ -24,12 +25,20 @@ namespace DocumentProcessingService.Api.Controllers
         {
             try
             {
-                CreateDocumentResponse?  document = await _documentService.GetById(documentId, cancellationToken);
+                Document?  document = await _documentService.GetById(documentId, cancellationToken);
 
                 if (document == null)
                     return NotFound();
 
-                return Ok(document);
+                CreateDocumentResponse response = new CreateDocumentResponse()
+                {
+                    FileName = document.FileName,
+                    DocumentId = document.Id,
+                    CreatedAt = DateTime.Now,
+                    Status = document.Status.GetDisplayName().ToString(),
+                };
+
+                return Ok(response);
             }
             catch (ArgumentException ex)
             {
@@ -46,7 +55,7 @@ namespace DocumentProcessingService.Api.Controllers
 
         [HttpPost]
         [RequestSizeLimit(10 * 1024 * 1024)]
-        public async Task<ActionResult> CreateDocument([FromForm] IFormFile file, CancellationToken cancellationToken)
+        public async Task<ActionResult> CreateDocument(IFormFile file, CancellationToken cancellationToken)
         {
             try
             {
@@ -60,7 +69,6 @@ namespace DocumentProcessingService.Api.Controllers
                     return BadRequest("The maximum file size is 10 MB.");
                 }
 
-                // Create document with file upload
                 using (var stream = file.OpenReadStream())
                 {
                     var document = await _documentService.CreateDocument(
@@ -73,13 +81,13 @@ namespace DocumentProcessingService.Api.Controllers
                     if (document is null)
                         return StatusCode(500, new { error = "Failed to create document." });
 
-                    // Map Document entity to CreateDocumentResponse DTO
+
                     var response = new CreateDocumentResponse
                     {
-                        DocumentId = document.Id,           // ✅ Use DocumentId property
+                        DocumentId = document.Id,
                         FileName = document.FileName,
-                        Status = document.Status,
-                        CreatedAt = document.CreatedAt      // ✅ Include CreatedAt
+                        Status = document.Status.GetDisplayName().ToString(),
+                        CreatedAt = document.CreatedAt ?? DateTime.Now
                     };
 
                     return CreatedAtAction(nameof(GetDocument), new { documentId = document.Id }, response);

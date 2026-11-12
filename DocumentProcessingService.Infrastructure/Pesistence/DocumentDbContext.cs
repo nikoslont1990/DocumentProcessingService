@@ -1,4 +1,5 @@
 ﻿using DocumentProcessingService.Domain.Entities;
+using DocumentProcessingService.Infrastructure.Pesistence.Outbox;
 using Microsoft.EntityFrameworkCore;
 using System;
 using System.Collections.Generic;
@@ -14,19 +15,14 @@ namespace DocumentProcessingService.Infrastructure.Pesistence
         }
 
         public DbSet<Document> Documents => Set<Document>();
+        public DbSet<OutboxMessage> OutboxMessages => Set<OutboxMessage>();
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
             base.OnModelCreating(modelBuilder);
 
-            // Configure Document entity
-            modelBuilder.Entity<Document>(entity =>
-            {
-                entity.HasKey(e => e.Id);
-                entity.Property(e => e.FileName).IsRequired().HasMaxLength(255);
-                entity.Property(e => e.Status).IsRequired().HasMaxLength(50);
-                entity.Property(e => e.CreatedAt).IsRequired();
-            });
+            modelBuilder.ApplyConfigurationsFromAssembly(
+                typeof(DocumentDbContext).Assembly);
         }
 
     }

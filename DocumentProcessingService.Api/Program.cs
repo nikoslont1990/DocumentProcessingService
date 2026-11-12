@@ -19,13 +19,18 @@ namespace DocumentProcessingService.Api
             builder.Logging.AddConsole();
             builder.Logging.AddDebug();
 
+
+            // Add services to the container.
+            builder.Services.AddEndpointsApiExplorer();
+            builder.Services.AddSwaggerGen();
             // Add services to the container
-            builder.Services.AddInfrastrucutre(builder.Configuration);
+            builder.Services.AddInfrastructure(builder.Configuration);
             builder.Services.AddScoped<IDocumentService>(x =>
                 new DocumentService(
                     
                     x.GetRequiredService<IDocumentRepository>(),
                     x.GetRequiredService<IBlobStorageService>(),
+                    x.GetRequiredService<IOutboxService>(),
                     x.GetRequiredService<ILogger<DocumentService>>()
                 ));
 
@@ -34,32 +39,8 @@ namespace DocumentProcessingService.Api
 
             var app = builder.Build();
 
-            app.MapGet("/test-blob", async (BlobServiceClient serviceClient) =>
-            {
-                try
-                {
-                    var containerClient =
-                        serviceClient.GetBlobContainerClient("documents");
-
-                    await containerClient.CreateIfNotExistsAsync();
-
-                    var blobClient =
-                        containerClient.GetBlobClient("test.txt");
-
-                    using var stream = new MemoryStream(
-                        Encoding.UTF8.GetBytes("Hello from Azurite!"));
-
-                    await blobClient.UploadAsync(stream, overwrite: true);
-
-                    return Results.Ok("Upload successful!");
-                }
-                catch (Exception ex)
-                {
-                    return Results.Problem(
-                        title: "Azurite upload failed",
-                        detail: ex.Message);
-                }
-            });
+            app.UseSwagger();
+            app.UseSwaggerUI();
 
             // Configure
             // the HTTP request pipeline.
