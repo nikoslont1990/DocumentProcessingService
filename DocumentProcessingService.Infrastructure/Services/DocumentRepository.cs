@@ -1,4 +1,5 @@
-﻿using DocumentProcessingService.Application.Interfaces;
+﻿using DocumentProcessingService.Application.DTOs;
+using DocumentProcessingService.Application.Interfaces;
 using DocumentProcessingService.Domain.Entities;
 using DocumentProcessingService.Infrastructure.Pesistence;
 using Microsoft.EntityFrameworkCore;
@@ -52,19 +53,26 @@ namespace DocumentProcessingService.Infrastructure.Services
             }
         }
 
-        public async Task MarkDocumentAsCompleted(Guid documentId, CancellationToken cancellationToken)
+        public async Task<DocumentCompletionResult> MarkDocumentAsCompleted(Guid documentId, CancellationToken cancellationToken)
         {
             var document = await _documentDbContext.Documents.FindAsync(new object[] { documentId }, cancellationToken: cancellationToken);
             if (document == null)
             {
-                throw new Exception($"Document with ID {documentId} not found.");
+                //throw new Exception($"Document with ID {documentId} not found.");
+                return DocumentCompletionResult.NotFound;
             }
 
-            var response = document.TryTransition(DocumentStatus.Completed);
-            if(!response)
+            if (document.Status == DocumentStatus.Completed)
             {
-                throw new Exception($"Failed to transition document with ID {documentId} to Completed status.Current status : {document.Status}");
+                return DocumentCompletionResult.AlreadyCompleted; // idempotent success
             }
+
+            var transitioned = document.TryTransition(DocumentStatus.Completed);
+            if(!transitioned)
+            {
+                throw new InvalidOperationException($"Invalid transition to Completed. Current status: {document.Status}");
+            }
+            return DocumentCompletionResult.CompletedNow;
         }
     }
 }

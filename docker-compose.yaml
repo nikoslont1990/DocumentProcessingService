@@ -1,9 +1,9 @@
-version: '3.8'
+name: local-azure
 
 services:
   azurite:
     image: mcr.microsoft.com/azure-storage/azurite:latest
-    container_name: azurite
+    container_name: documentprocessingservice-azurite
     ports:
       - "10000:10000"  # Blob Storage
       - "10001:10001"  # Queue Storage
@@ -13,6 +13,47 @@ services:
     volumes:
       - azurite_data:/data
     command: azurite-blob --loose --blobHost 0.0.0.0 --blobPort 10000
+    networks:
+      - local-azure
+
+
+  # Azure Service Bus Emulator
+  servicebus-emulator:
+    image: mcr.microsoft.com/azure-messaging/servicebus-emulator:latest
+    container_name: documentprocessingservice-servicebus-emulator
+    pull_policy: always
+    volumes:
+      - "${CONFIG_PATH:-./ServiceBus-Emulator/Config/Config.json}:/ServiceBus_Emulator/ConfigFiles/Config.json:ro"
+    ports:
+      - "5672:5672"
+      - "5300:${EMULATOR_HTTP_PORT:-5300}"
+    environment:
+      SQL_SERVER: sqledge
+      MSSQL_SA_PASSWORD: "${SQL_PASSWORD}"
+      ACCEPT_EULA: "${ACCEPT_EULA}"
+      SQL_WAIT_INTERVAL: "${SQL_WAIT_INTERVAL:-15}"
+      EMULATOR_HTTP_PORT: "${EMULATOR_HTTP_PORT:-5300}"
+    depends_on:
+      - sqledge
+    networks:
+      - local-azure
+
+  # SQL Edge - Service Bus backend
+  sqledge:
+    image: mcr.microsoft.com/azure-sql-edge:latest
+    container_name: documentprocessingservice-sqledge
+    environment:
+      ACCEPT_EULA: "${ACCEPT_EULA}"
+      MSSQL_SA_PASSWORD: "${SQL_PASSWORD}"
+    volumes:
+      - sqledge_data:/var/opt/mssql
+    networks:
+      - local-azure
 
 volumes:
   azurite_data:
+  sqledge_data:
+
+networks:
+  local-azure:
+    driver: bridge

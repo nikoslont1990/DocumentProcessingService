@@ -41,35 +41,25 @@ namespace DocumentProcessingService.Infrastructure.Services.Outbox
                     var message = new ServiceBusMessage(messageBody)
                     {
                         MessageId = rec.Id.ToString(),
+                        CorrelationId = rec.Id.ToString(),
                         Subject = rec.Type,
                         ContentType = "application/json"
                     };
                     await _messageBus.PublishMessage(message, cancellationToken);
-                    await _outboxRepository.MarkedAsPulished(rec.Id, cancellationToken);
+                    await _outboxRepository.MarkAsPulished(rec.Id, cancellationToken);
                     published++;
                 }
                 catch (Exception ex)
                 {
                     _logger.LogError(ex, "Failed to publish message with Id: {MessageId}", rec.Id);
-                    await _outboxRepository.MarkedAsFailed(rec.Id, ex.Message, maxRetries, cancellationToken);
+                    await _outboxRepository.MarkAsFailed(rec.Id, ex.Message, maxRetries, cancellationToken);
                     failed++;
                 }
             }
             await _outboxRepository.SaveAsync(cancellationToken);
-            _logger.LogInformation("All pending messages published successfully");
             _logger.LogInformation("Message published successfully");
             return new PublishCycleResult(fetched, published, failed);
 
-        }
-
-        private async Task RetryLogic(Guid outboxId, string error, int maxRetries)
-        {
-            
-        }
-
-        static void Retry()
-        {
-            // Retry logic here
         }
     }
 }

@@ -1,4 +1,5 @@
 ﻿using DocumentProcessingService.Domain.Entities;
+using DocumentProcessingService.Infrastructure.Pesistence.Inbox;
 using DocumentProcessingService.Infrastructure.Pesistence.Outbox;
 using Microsoft.EntityFrameworkCore;
 using System;
@@ -16,6 +17,7 @@ namespace DocumentProcessingService.Infrastructure.Pesistence
 
         public DbSet<Document> Documents => Set<Document>();
         public DbSet<OutboxMessage> OutboxMessages => Set<OutboxMessage>();
+        public DbSet<InboxMessage> InboxMessages => Set<InboxMessage>();
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {

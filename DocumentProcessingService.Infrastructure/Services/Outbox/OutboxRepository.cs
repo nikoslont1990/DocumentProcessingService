@@ -1,11 +1,8 @@
 ﻿using DocumentProcessingService.Application.DTOs;
 using DocumentProcessingService.Application.Interfaces;
-using DocumentProcessingService.Domain.Entities;
 using DocumentProcessingService.Infrastructure.Pesistence;
 using DocumentProcessingService.Infrastructure.Pesistence.Outbox;
 using Microsoft.EntityFrameworkCore;
-using Newtonsoft.Json;
-using Xunit.Sdk;
 
 namespace DocumentProcessingService.Infrastructure.Services.Outbox
 {
@@ -36,11 +33,14 @@ namespace DocumentProcessingService.Infrastructure.Services.Outbox
         public async Task<IReadOnlyList<OutboxMessageDTO>> GetPendingMessagesAsync(CancellationToken cancellationToken)
         {
             var pendingMessages = await _documentDbContext.OutboxMessages
-                .Where(it => it.PublishedAt == null)
+                .Where(it => it.PublishedAt == null &&
+                       it.Status == OutboxMessageStatus.Pending &&
+                       (it.NextRetryAt == null ||
+                       it.NextRetryAt <= DateTime.UtcNow))
                 .OrderBy(it => it.CreatedAt)
                 .Take(10)
                 .AsNoTracking()
-                .ToListAsync();
+                .ToListAsync(cancellationToken);
 
            return pendingMessages.Select(it => new OutboxMessageDTO
            {
@@ -73,7 +73,7 @@ namespace DocumentProcessingService.Infrastructure.Services.Outbox
             await _documentDbContext.SaveChangesAsync(cancellationToken);
         }
 
-        public async Task MarkedAsPulished(Guid id, CancellationToken cancellationToken)
+        public async Task MarkAsPulished(Guid id, CancellationToken cancellationToken)
         {
             var record = await _documentDbContext.OutboxMessages.FirstOrDefaultAsync(it => it.Id == id);
 
@@ -86,9 +86,10 @@ namespace DocumentProcessingService.Infrastructure.Services.Outbox
             record.TryOutboxStatusTransition(OutboxMessageStatus.Published);
         }
 
-        public async Task MarkedAsFailed(Guid id, string error, int maxRetries, CancellationToken cancellationToken)
+        public async Task MarkAsFailed(Guid id, string error, int maxRetries, CancellationToken cancellationToken)
         {
-            var record = await _documentDbContext.OutboxMessages.FirstOrDefaultAsync(it => it.Id == id);
+            var record = await _documentDbContext.OutboxMessages
+                                                 .FirstOrDefaultAsync(it => it.Id == id, cancellationToken);
 
             if (record == null)
             {
@@ -97,7 +98,6 @@ namespace DocumentProcessingService.Infrastructure.Services.Outbox
 
 
             record.RetryCount++;
-            //record.LastError = errorMessage;
             record.NextRetryAt = DateTime.UtcNow.AddSeconds(20); // Example retry delay
             if(record.RetryCount >= maxRetries)
             {

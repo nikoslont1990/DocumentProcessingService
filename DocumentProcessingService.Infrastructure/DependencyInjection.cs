@@ -4,8 +4,10 @@ using Azure.Storage.Blobs;
 using DocumentProcessingService.Application.Interfaces;
 using DocumentProcessingService.Infrastructure.Pesistence;
 using DocumentProcessingService.Infrastructure.Services;
+using DocumentProcessingService.Infrastructure.Services.Inbox;
 using DocumentProcessingService.Infrastructure.Services.Outbox;
 using DocumentProcessingService.Infrastructure.Services.Storage;
+using Microsoft.Azure.WebJobs.ServiceBus;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -53,14 +55,16 @@ namespace DocumentProcessingService.Infrastructure
                 RetryOptions = new ServiceBusRetryOptions
                 {
                     Mode = ServiceBusRetryMode.Exponential,
-                    MaxRetries = 6,
+                    MaxRetries = 3,
                     Delay = TimeSpan.FromSeconds(1),
-                    MaxDelay = TimeSpan.FromSeconds(10),
-                    TryTimeout = TimeSpan.FromSeconds(30)
+                    MaxDelay = TimeSpan.FromSeconds(60),
+                    TryTimeout = TimeSpan.FromSeconds(60)
                 }
             };
+
             services.AddSingleton(new ServiceBusClient(serviceBusConnectionString,options));
 
+            services.AddScoped<IInboxRepository, InboxRepository>();
             services.AddScoped<IOutboxRepository, OutboxRepository>();
             services.AddScoped<IOutboxService, OutboxService>();
             services.AddScoped<IBlobStorageService, BlobStorageService>();

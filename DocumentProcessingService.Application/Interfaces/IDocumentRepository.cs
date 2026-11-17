@@ -1,4 +1,5 @@
-﻿using DocumentProcessingService.Domain.Entities;
+﻿using DocumentProcessingService.Application.DTOs;
+using DocumentProcessingService.Domain.Entities;
 
 namespace DocumentProcessingService.Application.Interfaces
 {
@@ -11,7 +12,7 @@ namespace DocumentProcessingService.Application.Interfaces
 
         Task DeleteAsync(Guid documentId, CancellationToken cancellationToken);
 
-        Task MarkDocumentAsCompleted(Guid documentId, CancellationToken cancellationToken);
+        Task<DocumentCompletionResult> MarkDocumentAsCompleted(Guid documentId, CancellationToken cancellationToken);
         Task SaveAsync(CancellationToken cancellationToken);
     }
 }

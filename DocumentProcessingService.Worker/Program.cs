@@ -8,14 +8,6 @@ namespace DocumentProcessingService.Worker
         public static void Main(string[] args)
         {
             CreateHostBuilder(args).Build().Run();
-            //builder.Services.AddInfrastructure(builder.Configuration);
-            ////builder.Services.AddScoped<IMessageBus, MessageBus>();
-            //builder.Services.AddHostedService<OutboxPublisherWorker>();
-            //builder.Services.AddHostedService<DocumentProcessingWorker>();
-
-
-            //var host = builder.Build();
-            //host.Run();
         }
 
         public static IHostBuilder CreateHostBuilder(string[] args) =>
@@ -23,6 +15,10 @@ namespace DocumentProcessingService.Worker
                .ConfigureServices((context, services) =>
                {
                    services.AddInfrastructure(context.Configuration);
+                   services.AddOptions<DocumentProcessingQueueOptions>()
+                           .Bind(context.Configuration.GetSection(DocumentProcessingQueueOptions.SectionName))
+                           .Validate(o => !string.IsNullOrWhiteSpace(o.QueueName), "Workers:DocumentProcessing:QueueName is required.")
+                           .ValidateOnStart();
                    services.AddHostedService<OutboxPublisherWorker>();
                    services.AddHostedService<DocumentProcessingWorker>();
                });
