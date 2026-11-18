@@ -38,6 +38,7 @@ namespace DocumentProcessingService.Worker.Workers
 
             logger.LogInformation("Starting Service Bus processor for queue {QueueName}", _queueName);
             await processor.StartProcessingAsync();
+
             try
             {
                 await Task.Delay(Timeout.Infinite, cancellationToken);
@@ -55,10 +56,9 @@ namespace DocumentProcessingService.Worker.Workers
             var correlationId = args.Message.CorrelationId;
             var messageId = args.Message.MessageId;
 
-
             try
             {
-                var outcome = await HandleAsync(args, ct);
+                ProcessingOutcome outcome = await ProcessDocumentMessageAsync(args, ct);
 
                 switch (outcome)
                 {
@@ -127,27 +127,26 @@ namespace DocumentProcessingService.Worker.Workers
                    && (sqlEx.Number == 2601 || sqlEx.Number == 2627);
         }
 
-        private async Task<ProcessingOutcome> HandleAsync(ProcessMessageEventArgs args, CancellationToken ct)
+        public async Task<ProcessingOutcome> ProcessDocumentMessageAsync(ProcessMessageEventArgs args, CancellationToken ct)
         {
-            var messageId = args.Message.MessageId;
-            var correlationId = args.Message.CorrelationId;
-
-            if (string.IsNullOrWhiteSpace(messageId))
-                return ProcessingOutcome.MissingMessageId;
-
+            string messageId, correlationId;
             DocumentMessage? documentEvent;
-            try
+            var validationOutcome = ValidateMessage(args);
+            if (validationOutcome.HasValue)
             {
-                documentEvent = JsonConvert.DeserializeObject<DocumentMessage>(args.Message.Body.ToString());
-            }
-            catch (Newtonsoft.Json.JsonException)
-            {
-                return ProcessingOutcome.InvalidPayload;
+                return validationOutcome.Value;
             }
 
-            if (documentEvent is null || documentEvent.DocumentId == Guid.Empty)
-                return ProcessingOutcome.InvalidPayload;
+            // Step 2: Extract the document from JSON
+            var message = JsonConvert.DeserializeObject<DocumentMessage>(args.Message.Body.ToString());
 
+
+            //Step 3: Process the document
+            return await ProcessDocumentAsync(args.Message.MessageId, args.Message.CorrelationId, message, ct);
+        }
+
+        private async Task<ProcessingOutcome> ProcessDocumentAsync(string messageId, string correlationId, DocumentMessage? documentEvent, CancellationToken ct)
+        {
             using var scope = serviceScopedFactory.CreateScope();
             var documentRepository = scope.ServiceProvider.GetRequiredService<IDocumentRepository>();
             var inboxRepository = scope.ServiceProvider.GetRequiredService<IInboxRepository>();
@@ -156,7 +155,7 @@ namespace DocumentProcessingService.Worker.Workers
                 "Received document {DocumentId}. MessageId {MessageId}, CorrelationId {CorrelationId}",
                 documentEvent.DocumentId, messageId, correlationId);
 
-            if (await inboxRepository.IsDuplicateMessageAsync(messageId, ct))
+            if (await inboxRepository.AlreadyExists(messageId, ct))
                 return ProcessingOutcome.Duplicate;
 
             var result = await documentRepository.MarkDocumentAsCompleted(documentEvent.DocumentId, ct);
@@ -179,6 +178,29 @@ namespace DocumentProcessingService.Worker.Workers
                 messageId, documentEvent.DocumentId);
 
             return ProcessingOutcome.Completed;
+        }
+
+        private ProcessingOutcome? ValidateMessage(ProcessMessageEventArgs args)
+        {
+            var messageId = args.Message.MessageId;
+
+            if (string.IsNullOrWhiteSpace(messageId))
+                return ProcessingOutcome.MissingMessageId;
+
+            DocumentMessage? documentEvent = null;
+            try
+            {
+                documentEvent = JsonConvert.DeserializeObject<DocumentMessage>(args.Message.Body.ToString());
+            }
+            catch (JsonException)
+            {
+                return ProcessingOutcome.InvalidPayload;
+            }
+
+            if (documentEvent?.DocumentId == Guid.Empty)
+                return ProcessingOutcome.InvalidPayload;
+          
+            return null;
         }
     }
 }

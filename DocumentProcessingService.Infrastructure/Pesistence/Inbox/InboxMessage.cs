@@ -10,7 +10,7 @@ namespace DocumentProcessingService.Infrastructure.Pesistence.Inbox
         public Guid Id { get; set; }
 
         public string MessageId { get; set; }
-        public DateTime ProcessedAt { get; set; }
+        public DateTime? ProcessedAt { get; set; }
         public Guid DocumentId { get; set; }
         public string CorrelationId { get; set; }
         public string Consumer { get; set; }

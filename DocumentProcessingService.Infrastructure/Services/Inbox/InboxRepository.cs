@@ -14,9 +14,9 @@ namespace DocumentProcessingService.Infrastructure.Services.Inbox
             _documentDbContext = documentDbContext;
         }
 
-        public async Task<bool> IsDuplicateMessageAsync(string messageId,CancellationToken cancellationToken)
+        public async Task<bool> AlreadyExists(string messageId,CancellationToken cancellationToken)
         {
-            var messageExists = await _documentDbContext.InboxMessages.AnyAsync(it => it.MessageId == messageId, cancellationToken);
+            var messageExists = await _documentDbContext.InboxMessages.AnyAsync(it => it.MessageId == messageId && it.ProcessedAt!= null, cancellationToken);
             return messageExists;
         }
 

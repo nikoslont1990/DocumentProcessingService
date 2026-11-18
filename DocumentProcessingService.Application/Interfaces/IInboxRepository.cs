@@ -2,7 +2,7 @@
 {
     public interface IInboxRepository
     {
-        Task<bool> IsDuplicateMessageAsync(string messageId, CancellationToken cancellationToken);
+        Task<bool> AlreadyExists(string messageId, CancellationToken cancellationToken);
         Task AddMessageAsync(string messageId, string correlationId, string consumer, CancellationToken cancellationToken);
     }
 }
