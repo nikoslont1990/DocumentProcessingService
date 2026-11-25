@@ -1,11 +1,8 @@
-﻿using Azure.Messaging.ServiceBus;
-using DocumentProcessingService.Application.DTOs;
+﻿using DocumentProcessingService.Application.DTOs;
 using DocumentProcessingService.Application.Interfaces;
 using DocumentProcessingService.Domain.Entities;
-using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using Newtonsoft.Json;
-using System.Net.Sockets;
 
 namespace DocumentProcessingService.Application.Services
 {
@@ -66,7 +63,6 @@ namespace DocumentProcessingService.Application.Services
 
                 _logger.LogInformation("Document created with ID: {DocumentId}", document.Id);
 
-
                 // STEP 3: Upload blob using now-available ID
                 _logger.LogInformation("Document upload started");
                 blobName = await _documentStorage.UploadDocumentAsync(
@@ -110,6 +106,7 @@ namespace DocumentProcessingService.Application.Services
                         _logger.LogError(cleanupException, "Failed to delete blob {BlobName}", blobName);
                     }
                 }
+
                 // 2. Try to delete the document from database
                 if (document.Id != Guid.Empty)  // Only if document was saved with an ID
                 {

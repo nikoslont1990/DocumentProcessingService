@@ -1,8 +1,11 @@
 ﻿using Azure.Messaging.ServiceBus;
+using DocumentProcessingService.Application.Configuration;
 using DocumentProcessingService.Application.DTOs;
 using DocumentProcessingService.Application.Interfaces;
+using DocumentProcessingService.Infrastructure.Pesistence;
 using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Newtonsoft.Json;
 using DocumentMessage = DocumentProcessingService.Worker.Models.DocumentMessage;
@@ -15,7 +18,9 @@ namespace DocumentProcessingService.Worker.Workers
         : BackgroundService, IDisposable
     {
         private readonly string _queueName = queueOptions.Value.QueueName;
-        //private ServiceBusProcessor? _processor;
+        private readonly int _maxConcurrentCalls = 3;
+        private readonly TimeSpan _messageLockDuration = TimeSpan.FromMinutes(1);
+
 
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         {
@@ -24,67 +29,56 @@ namespace DocumentProcessingService.Worker.Workers
 
         private async Task ConsumeFromQueueAsync(CancellationToken cancellationToken)
         {
-            await using var processor = serviceBusClient.CreateProcessor(_queueName, new ServiceBusProcessorOptions()
+            var processor = serviceBusClient.CreateProcessor(_queueName, new ServiceBusProcessorOptions()
             {
                 ReceiveMode = ServiceBusReceiveMode.PeekLock,
                 AutoCompleteMessages = false,
-                MaxConcurrentCalls = 1,
-                MaxAutoLockRenewalDuration = TimeSpan.FromMinutes(5)
+                MaxConcurrentCalls = _maxConcurrentCalls,
+                MaxAutoLockRenewalDuration = _messageLockDuration
             });
 
             processor.ProcessMessageAsync += ProcessMessageAsync;
             
             processor.ProcessErrorAsync += ProcessErrorAsync;
 
-            logger.LogInformation("Starting Service Bus processor for queue {QueueName}", _queueName);
-            await processor.StartProcessingAsync();
-
+            logger.LogInformation("Starting Service Bus processor for queue {QueueName} with MaxConcurrentCalls={MaxConcurrentCalls} and MessageLockDuration={MessageLockDuration}"
+                , _queueName, _maxConcurrentCalls, _messageLockDuration);
+           
             try
             {
+                await processor.StartProcessingAsync(cancellationToken);
                 await Task.Delay(Timeout.Infinite, cancellationToken);
 
             }
             catch(OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
-
+                logger.LogInformation("Stopping processor due to cancellation request.");
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Unexpected error in processor");
+            }
+            finally
+            {
+                await processor.StopProcessingAsync();
+                await processor.DisposeAsync();
+                logger.LogInformation("Processor stopped and disposed");
             }
         }
+
 
         private async Task ProcessMessageAsync(ProcessMessageEventArgs args)
         {
             var ct = args.CancellationToken;
-            var correlationId = args.Message.CorrelationId;
             var messageId = args.Message.MessageId;
+            var correlationId = args.Message.CorrelationId;
 
             try
             {
+                logger.LogDebug("Processing message. MessageId={MessageId}, CorrelationId={CorrelationId}",
+                    messageId, correlationId);
                 ProcessingOutcome outcome = await ProcessDocumentMessageAsync(args, ct);
-
-                switch (outcome)
-                {
-                    case ProcessingOutcome.Completed:
-                    case ProcessingOutcome.Duplicate:
-                        await args.CompleteMessageAsync(args.Message, ct);
-                        break;
-
-                    case ProcessingOutcome.MissingMessageId:
-                        await args.DeadLetterMessageAsync(
-                            args.Message, "MissingMessageId", "MessageId is required.", ct);
-                        break;
-
-                    case ProcessingOutcome.InvalidPayload:
-                        await args.DeadLetterMessageAsync(
-                            args.Message, "InvalidPayload", "Payload could not be deserialized or DocumentId is empty.", ct);
-                        break;
-
-                    case ProcessingOutcome.DocumentNotFoundRetryable:
-                        logger.LogWarning(
-                            "Document not found yet. Abandoning for retry. MessageId {MessageId}, CorrelationId {CorrelationId}",
-                            messageId, correlationId);
-
-                        await args.AbandonMessageAsync(args.Message, null, ct);
-                        break;
-                }
+                await HandleProcessingOutcomeAsync(args, outcome, messageId, correlationId);
             }
             catch (ServiceBusException ex) when (ex.IsTransient)
             {
@@ -112,6 +106,37 @@ namespace DocumentProcessingService.Worker.Workers
             }
         }
 
+        private async Task HandleProcessingOutcomeAsync(ProcessMessageEventArgs args, ProcessingOutcome outcome, string messageId, string correlationId)
+        {
+            var ct = args.CancellationToken;
+
+            switch (outcome)
+            {
+                case ProcessingOutcome.Completed:
+                case ProcessingOutcome.Duplicate:
+                    await args.CompleteMessageAsync(args.Message, ct);
+                    break;
+
+                case ProcessingOutcome.MissingMessageId:
+                    await args.DeadLetterMessageAsync(
+                        args.Message, "MissingMessageId", "MessageId is required.", ct);
+                    break;
+
+                case ProcessingOutcome.InvalidPayload:
+                    await args.DeadLetterMessageAsync(
+                        args.Message, "InvalidPayload", "Payload could not be deserialized or DocumentId is empty.", ct);
+                    break;
+
+                case ProcessingOutcome.DocumentNotFoundRetryable:
+                    logger.LogWarning(
+                        "Document not found yet. Abandoning for retry. MessageId {MessageId}, CorrelationId {CorrelationId}",
+                        messageId, correlationId);
+
+                    await args.AbandonMessageAsync(args.Message, null, ct);
+                    break;
+            }
+        }
+
         private Task ProcessErrorAsync(ProcessErrorEventArgs args)
         {
             logger.LogError(args.Exception,
@@ -127,22 +152,24 @@ namespace DocumentProcessingService.Worker.Workers
                    && (sqlEx.Number == 2601 || sqlEx.Number == 2627);
         }
 
-        public async Task<ProcessingOutcome> ProcessDocumentMessageAsync(ProcessMessageEventArgs args, CancellationToken ct)
+        private async Task<ProcessingOutcome> ProcessDocumentMessageAsync(ProcessMessageEventArgs args, CancellationToken ct)
         {
-            string messageId, correlationId;
-            DocumentMessage? documentEvent;
-            var validationOutcome = ValidateMessage(args);
+            //string messageId, correlationId;
+            var validationOutcome = ValidateMessage(args, out var documentMessage);
             if (validationOutcome.HasValue)
             {
                 return validationOutcome.Value;
             }
 
-            // Step 2: Extract the document from JSON
-            var message = JsonConvert.DeserializeObject<DocumentMessage>(args.Message.Body.ToString());
+            if (documentMessage == null)
+            {
+                logger.LogError("Document message is null after validation. MessageId={MessageId}",
+                    args.Message.MessageId);
+                return ProcessingOutcome.InvalidPayload;
+            }
 
-
-            //Step 3: Process the document
-            return await ProcessDocumentAsync(args.Message.MessageId, args.Message.CorrelationId, message, ct);
+            return await ProcessDocumentAsync(args.Message.MessageId, 
+                args.Message.CorrelationId, documentMessage, ct);
         }
 
         private async Task<ProcessingOutcome> ProcessDocumentAsync(string messageId, string correlationId, DocumentMessage? documentEvent, CancellationToken ct)
@@ -150,57 +177,113 @@ namespace DocumentProcessingService.Worker.Workers
             using var scope = serviceScopedFactory.CreateScope();
             var documentRepository = scope.ServiceProvider.GetRequiredService<IDocumentRepository>();
             var inboxRepository = scope.ServiceProvider.GetRequiredService<IInboxRepository>();
+            var dbContext = scope.ServiceProvider.GetRequiredService<DocumentDbContext>();
 
             logger.LogInformation(
                 "Received document {DocumentId}. MessageId {MessageId}, CorrelationId {CorrelationId}",
                 documentEvent.DocumentId, messageId, correlationId);
 
-            if (await inboxRepository.AlreadyExists(messageId, ct))
-                return ProcessingOutcome.Duplicate;
 
-            var result = await documentRepository.MarkDocumentAsCompleted(documentEvent.DocumentId, ct);
-            if (result == DocumentCompletionResult.NotFound)
-                return ProcessingOutcome.DocumentNotFoundRetryable;
-
-            await inboxRepository.AddMessageAsync(messageId, correlationId, nameof(DocumentProcessingWorker), ct);
-
+            using var transaction = await dbContext.Database
+                                       .BeginTransactionAsync(System.Data.IsolationLevel.ReadCommitted, ct);
             try
             {
+               
+                //Step 1: Check if the message already exists in the inbox
+                (bool isNew, bool alreadyProcessed) = await inboxRepository.AddMessageIfNotExistsAsync(messageId, correlationId, documentEvent.DocumentId, nameof(DocumentProcessingWorker), ct);
+
+                if (!isNew)
+                {
+                    logger.LogWarning(
+                    "Duplicate message detected. MessageId={MessageId}, AlreadyProcessed={AlreadyProcessed}",
+                    messageId, alreadyProcessed);
+                    return ProcessingOutcome.Duplicate;
+                }
+
+                //Step 2: Mark the document as completed
+                var result = await documentRepository.MarkDocumentAsCompleted(documentEvent.DocumentId, ct);
+
+                if (result == DocumentCompletionResult.NotFound)
+                {
+                    logger.LogWarning(
+                    "Document not found (retryable). MessageId={MessageId}, DocumentId={DocumentId}",
+                    messageId, documentEvent.DocumentId);
+
+                    return ProcessingOutcome.DocumentNotFoundRetryable;
+                }
+
+                //Step 3: Save changes 
                 await documentRepository.SaveAsync(ct);
+                await inboxRepository.MarkAsProcessedAsync(messageId, ct);
+                await documentRepository.SaveAsync(ct);
+
+                // SUCCESS - Commit everything  
+                await transaction.CommitAsync(ct);
+
+                logger.LogInformation(
+                "Successfully processed message {MessageId} for document {DocumentId}",
+                messageId, documentEvent.DocumentId);
+
+                return ProcessingOutcome.Completed;
             }
             catch (DbUpdateException ex) when (IsUniqueInboxMessageIdViolation(ex))
             {
+                await transaction.RollbackAsync(ct);
+
+                logger.LogWarning(ex,
+                    "Unique constraint violation during save. MessageId={MessageId}. Another worker processed this.",
+                    messageId);
                 return ProcessingOutcome.Duplicate;
             }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                await transaction.RollbackAsync(ct);
+                logger.LogInformation("Message processing cancelled. MessageId={MessageId}", messageId);
+                throw;
+            }
+            catch (Exception ex)
+            {
+                await transaction.RollbackAsync(ct);
 
-            logger.LogInformation(
-                "Processed message {MessageId} for document {DocumentId}",
-                messageId, documentEvent.DocumentId);
+                logger.LogError(ex,
+                    "Unexpected error processing document. MessageId={MessageId}, DocumentId={DocumentId}",
+                    messageId, documentEvent.DocumentId);
 
-            return ProcessingOutcome.Completed;
+                throw;
+            }
         }
 
-        private ProcessingOutcome? ValidateMessage(ProcessMessageEventArgs args)
+
+        private ProcessingOutcome? ValidateMessage(ProcessMessageEventArgs args, 
+            out DocumentMessage? documentMessage)
         {
+            documentMessage = null;
             var messageId = args.Message.MessageId;
 
             if (string.IsNullOrWhiteSpace(messageId))
                 return ProcessingOutcome.MissingMessageId;
 
-            DocumentMessage? documentEvent = null;
             try
             {
-                documentEvent = JsonConvert.DeserializeObject<DocumentMessage>(args.Message.Body.ToString());
-            }
-            catch (JsonException)
-            {
-                return ProcessingOutcome.InvalidPayload;
-            }
+                documentMessage = JsonConvert.DeserializeObject<DocumentMessage>(args.Message.Body.ToString());
+                if (documentMessage?.DocumentId == Guid.Empty)
+                {
+                    logger.LogError("Document has empty DocumentId. MessageId={MessageId}", messageId);
+                    return ProcessingOutcome.InvalidPayload;
+                }
 
-            if (documentEvent?.DocumentId == Guid.Empty)
+                return null;
+            }
+            catch (JsonException ex)
+            {
+                logger.LogError(ex, "Failed to deserialize document. MessageId={MessageId}", messageId);
                 return ProcessingOutcome.InvalidPayload;
-          
-            return null;
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Unexpected error during message validation. MessageId={MessageId}", messageId);
+                return ProcessingOutcome.InvalidPayload;
+            }
         }
     }
 }

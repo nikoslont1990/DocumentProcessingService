@@ -12,6 +12,8 @@ namespace DocumentProcessingService.Infrastructure.Pesistence.Configuration
             builder.HasKey(e => e.Id);
             builder.Property(e => e.Type).IsRequired().HasMaxLength(100);
             builder.Property(e => e.Content).IsRequired();
+            builder.Property(e => e.Status).HasConversion<string>().
+                HasMaxLength(50);
             builder.Property(e => e.CreatedAt).IsRequired();
             builder.ToTable("OutboxMessages");
         }

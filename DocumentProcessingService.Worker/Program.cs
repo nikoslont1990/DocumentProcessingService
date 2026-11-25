@@ -1,3 +1,4 @@
+using DocumentProcessingService.Application.Configuration;
 using DocumentProcessingService.Infrastructure;
 using DocumentProcessingService.Worker.Workers;
 

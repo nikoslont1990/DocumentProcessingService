@@ -1,6 +1,4 @@
-﻿using System.ComponentModel;
-using System.ComponentModel.DataAnnotations;
-using static System.Net.WebRequestMethods;
+﻿using System.ComponentModel.DataAnnotations;
 
 namespace DocumentProcessingService.Domain.Entities
 {

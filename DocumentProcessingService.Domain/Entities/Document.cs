@@ -50,8 +50,8 @@ namespace DocumentProcessingService.Domain.Entities
             return new Dictionary<DocumentStatus, DocumentStatus[]>
             {
                 { DocumentStatus.Pending, new[] { DocumentStatus.Uploaded, DocumentStatus.Failed } },
-                { DocumentStatus.Uploaded, new[] { DocumentStatus.Processing, DocumentStatus.Failed } },
-                { DocumentStatus.Processing, new[] { DocumentStatus.Completed, DocumentStatus.Failed } },
+                { DocumentStatus.Uploaded, new[] { DocumentStatus.Completed, DocumentStatus.Failed } },
+                //{ DocumentStatus.Processing, new[] { DocumentStatus.Completed, DocumentStatus.Failed } },
             };
         }
     }

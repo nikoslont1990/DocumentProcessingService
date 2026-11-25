@@ -185,6 +185,11 @@ namespace DocumentProcessingService.Tests.Integration.Outbox
                     throw new Exception("Simulated transient failure");
                 return Task.CompletedTask;
             }
+
+            public Task PublishMessages(IEnumerable<ServiceBusMessage> message, CancellationToken cancellationToken)
+            {
+                throw new NotImplementedException();
+            }
         }
 
         private sealed class MixedBehaviorMessageBus : IMessageBus
@@ -220,6 +225,11 @@ namespace DocumentProcessingService.Tests.Integration.Outbox
                 }
 
                 return Task.CompletedTask;
+            }
+
+            public Task PublishMessages(IEnumerable<ServiceBusMessage> message, CancellationToken cancellationToken)
+            {
+                throw new NotImplementedException();
             }
         }
     }
