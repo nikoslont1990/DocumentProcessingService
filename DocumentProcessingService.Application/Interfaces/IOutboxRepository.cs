@@ -8,7 +8,6 @@ namespace DocumentProcessingService.Application.Interfaces
         Task AddAsync(string type,string content, CancellationToken cancellationToken);
 
         Task<IReadOnlyList<OutboxMessageDTO>> GetPendingMessagesAsync(CancellationToken cancellationToken);
-        //Task ChangeStatus(Guid id,DocumentStatus status, CancellationToken cancellationToken);
         Task MarkAsPulished(Guid id, CancellationToken cancellationToken);
 
         Task MarkAsFailed(Guid id, string error, int maxRetries, CancellationToken cancellationToken);

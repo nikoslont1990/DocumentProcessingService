@@ -81,48 +81,34 @@ namespace DocumentProcessingService.Infrastructure.Services.Outbox
             CancellationToken cancellationToken
             )
         {
-            var batchMessages = new List<ServiceBusMessage>();
-            var messageIds = new List<Guid>();
+            BatchCreationResult batchObj = null;
             var published = 0;
             var failed = 0;
 
             try
             {
-
-                foreach (OutboxMessageDTO rec in batch)
-                {
-                    var message = new ServiceBusMessage(rec.Content)
-                    {
-                        MessageId = rec.Id.ToString(),
-                        CorrelationId = rec.Id.ToString(),
-                        Subject = rec.Type,
-                        ContentType = "application/json"
-                    };
-                    batchMessages.Add(message);
-                    messageIds.Add(rec.Id);
-                }
+                batchObj = CreateBatch(batch);
                 // Send entire batch in one network call
 
                 var batchSw = Stopwatch.StartNew();
                 _logger.LogInformation("Publishing batch of {Count} messages to queue '{QueueName}'",
-                    batchMessages.Count,
+                    batchObj.batchMessages.Count,
                     _configuration["Workers:DocumentProcessing:QueueName"]);
 
-                await _messageBus.PublishMessages(batchMessages, cancellationToken);
-
+                await _messageBus.PublishMessages(batchObj.batchMessages, cancellationToken);
                 batchSw.Stop();
 
                 _logger.LogDebug(
                 "Batch published successfully. Count={Count}, Duration={Duration}ms, AvgPerMessage={AvgTime}ms",
-                batchMessages.Count, batchSw.ElapsedMilliseconds,
-                batchSw.ElapsedMilliseconds / (double)batchMessages.Count);
+                batchObj.batchMessages.Count, batchSw.ElapsedMilliseconds,
+                batchSw.ElapsedMilliseconds / (double)batchObj.batchMessages.Count);
                 // Mark all in batch as published
 
-                foreach (var id in messageIds)
+                foreach (var id in batchObj.messageIds)
                 {
                     await _outboxRepository.MarkAsPulished(id, cancellationToken);
                 }
-                published += batchMessages.Count;
+                published += batchObj.batchMessages.Count;
             }
             catch (OperationCanceledException)
             {
@@ -130,16 +116,40 @@ namespace DocumentProcessingService.Infrastructure.Services.Outbox
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Failed to publish batch of {Count} messages", batchMessages.Count);
+                _logger.LogError(ex, "Failed to publish batch of {Count} messages", batchObj.batchMessages.Count);
 
                 // Mark all in batch as failed
-                foreach (var id in messageIds)
+                foreach (var id in batchObj.messageIds)
                 {
                     await _outboxRepository.MarkAsFailed(id, ex.Message, maxRetries, cancellationToken);
                 }
-                failed += batchMessages.Count;
+                failed += batchObj.batchMessages.Count;
             }
             return new BatchPublishResult(published, failed);
+        }
+
+        private static BatchCreationResult CreateBatch(List<OutboxMessageDTO> batch)
+        {
+            var batchMessages = new List<ServiceBusMessage>();
+            var messageIds = new List<Guid>();
+            foreach (OutboxMessageDTO rec in batch)
+            {
+                var message = new ServiceBusMessage(rec.Content)
+                {
+                    MessageId = rec.Id.ToString(),
+                    CorrelationId = rec.Id.ToString(),
+                    Subject = rec.Type,
+                    ContentType = "application/json"
+                };
+                batchMessages.Add(message);
+                messageIds.Add(rec.Id);
+            }
+
+            return new BatchCreationResult
+            {
+                batchMessages = batchMessages,
+                messageIds = messageIds
+            };
         }
 
         public async Task<PublishCycleResult> PublishPendingMessagesOneByOne(CancellationToken cancellationToken)

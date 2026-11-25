@@ -2,7 +2,9 @@ using DocumentProcessingService.Application.Interfaces;
 
 namespace DocumentProcessingService.Worker.Workers
 {
-    public class OutboxPublisherWorker(ILogger<OutboxPublisherWorker> logger, IConfiguration configuration,
+    public class OutboxPublisherWorker(
+        ILogger<OutboxPublisherWorker> logger, 
+        IConfiguration configuration,
         IServiceScopeFactory scopeFactory) : BackgroundService
     {
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -20,7 +22,7 @@ namespace DocumentProcessingService.Worker.Workers
                 catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
                 {
                     logger.LogInformation("Outbox publishing worker is stopping due to cancellation.");
-                    break; // Exit the loop if cancellation is requested
+                    break;
                 }
                 catch (Exception ex)
                 {

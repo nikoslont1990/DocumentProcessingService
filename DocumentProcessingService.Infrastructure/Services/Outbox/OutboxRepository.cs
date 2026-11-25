@@ -32,41 +32,25 @@ namespace DocumentProcessingService.Infrastructure.Services.Outbox
 
         public async Task<IReadOnlyList<OutboxMessageDTO>> GetPendingMessagesAsync(CancellationToken cancellationToken)
         {
-            var pendingMessages = await _documentDbContext.OutboxMessages
+            List<OutboxMessageDTO> pendingMessages = await _documentDbContext.OutboxMessages
                 .Where(it => it.PublishedAt == null &&
                        it.Status == OutboxMessageStatus.Pending &&
                        (it.NextRetryAt == null ||
                        it.NextRetryAt <= DateTime.UtcNow))
+                .Select(it => new OutboxMessageDTO
+                       {
+                           Id = it.Id,
+                           Type = it.Type,
+                           Content = it.Content,
+                           CreatedAt = it.CreatedAt
+                       })
                 .OrderBy(it => it.CreatedAt)
                 .Take(10)
                 .AsNoTracking()
                 .ToListAsync(cancellationToken);
 
-           return pendingMessages.Select(it => new OutboxMessageDTO
-           {
-               Id = it.Id,
-               Type = it.Type,
-               Content = it.Content,
-               CreatedAt = it.CreatedAt
-           }).ToList();
+            return pendingMessages;
         }
-
-        //public async Task ChangeStatus(Guid id, DocumentStatus status, CancellationToken cancellationToken)
-        //{
-        //    var record = await _documentDbContext.OutboxMessages.FirstOrDefaultAsync(it => it.Id == id);
-
-        //    if (record == null)
-        //    {
-        //        return;
-        //    }
-
-        //        record.PublishedAt = DateTime.Now;
-        //        var documentMessage = JsonConvert.DeserializeObject<DocumentMessage>(record.Content);
-        //        var recDocument = await _documentDbContext.Documents
-        //                                                    .FirstOrDefaultAsync(it => it.Id == documentMessage.DocumentId);
-        //        recDocument.TryTransition(status);
-
-        //}
 
         public async Task SaveAsync(CancellationToken cancellationToken)
         {
@@ -75,7 +59,7 @@ namespace DocumentProcessingService.Infrastructure.Services.Outbox
 
         public async Task MarkAsPulished(Guid id, CancellationToken cancellationToken)
         {
-            var record = await _documentDbContext.OutboxMessages.FirstOrDefaultAsync(it => it.Id == id);
+            var record = await _documentDbContext.OutboxMessages.FirstOrDefaultAsync(it => it.Id == id, cancellationToken);
 
             if (record == null)
             {
